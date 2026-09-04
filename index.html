@@ -34,6 +34,16 @@
   }
   header h1 { margin: 0; font-size: 17px; }
   header p { margin: 4px 0 0; font-size: 12px; opacity: 0.85; }
+
+  .prog-wrap {
+    background: #16324f;
+    height: 5px;
+    position: sticky;
+    top: 56px;
+    z-index: 10;
+  }
+  .prog-bar { background: #6fb3ff; height: 100%; width: 0%; transition: width 0.2s ease; }
+
   main {
     max-width: 480px;
     margin: 0 auto;
@@ -95,61 +105,21 @@
 
   .status-2col { grid-template-columns: 1fr 1fr; }
 
-  .back-link {
+  .top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .back-link, .exit-link {
     display: inline-block;
-    margin-bottom: 10px;
     color: var(--blue);
     font-size: 14px;
     cursor: pointer;
   }
+  .step-counter { font-size: 13px; color: var(--grey); font-weight: bold; }
 
-  .list-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 4px;
-  }
-  .list-progress { font-size: 13px; color: var(--grey); }
-
-  .item-list { margin-top: 10px; }
-  .item-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: #fff;
-    border: 2px solid var(--border);
-    border-radius: 10px;
-    padding: 14px;
-    margin-bottom: 8px;
-    cursor: pointer;
-  }
-  .item-row .item-text { font-size: 15px; font-weight: bold; color: #222; }
-  .item-row .item-sub { font-size: 12px; color: var(--grey); font-weight: normal; }
-  .item-row .badge {
-    font-size: 12px;
-    font-weight: bold;
-    padding: 4px 10px;
-    border-radius: 20px;
-    white-space: nowrap;
-    margin-left: 10px;
-  }
-  .item-row.done { border-color: var(--border); background: #fafafa; }
-  .badge.ok { background: #e8f5e9; color: var(--green); }
-  .badge.issue { background: #fdecea; color: var(--red); }
-  .badge.skip { background: #fdf3e3; color: var(--amber); }
-
-  .finish-btn {
-    width: 100%;
-    padding: 14px;
-    margin-top: 16px;
-    background: #fff;
-    color: var(--blue);
-    border: 2px solid var(--blue);
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: bold;
-    cursor: pointer;
-  }
+  .location-title { font-size: 19px; font-weight: bold; color: #222; margin: 10px 0 0; }
 
   .card {
     background: #fff;
@@ -219,6 +189,7 @@
   <h1>Safety Equipment Inspection</h1>
   <p>Renewables Hardwoodlands - Monthly Inspections</p>
 </header>
+<div class="prog-wrap"><div class="prog-bar" id="prog-bar"></div></div>
 
 <main>
 
@@ -251,21 +222,13 @@
     </div>
   </div>
 
-  <!-- List of locations for the chosen category -->
-  <div id="screen-list" class="screen">
-    <span class="back-link" onclick="showScreen('screen-category')">&#8592; Categories</span>
-    <div class="list-header">
-      <label id="list-category-label" style="margin:0;"></label>
-      <span class="list-progress" id="list-progress"></span>
-    </div>
-    <div class="item-list" id="item-list"></div>
-    <button class="finish-btn" onclick="showScreen('screen-category')">Done for now</button>
-  </div>
-
-  <!-- Standard item form (extinguishers / doors / lights) -->
+  <!-- Linear walkthrough: one location at a time, saves and auto-advances -->
   <div id="screen-item" class="screen">
-    <span class="back-link" onclick="showScreen('screen-list')">&#8592; Back to list</span>
-    <label id="item-location-label" style="font-size:17px;"></label>
+    <div class="top-row">
+      <span class="exit-link" onclick="confirmExit()">&#8592; Exit</span>
+      <span class="step-counter" id="step-counter"></span>
+    </div>
+    <div class="location-title" id="item-location-label"></div>
 
     <label>Status</label>
     <div class="status-grid">
@@ -280,12 +243,12 @@
     <label>Inspector Initials</label>
     <input type="text" id="item-inspector" placeholder="e.g. AP" maxlength="6" />
 
-    <button class="submit-btn" id="item-submit" onclick="submitItem()" disabled>Save &amp; Continue</button>
+    <button class="submit-btn" id="item-submit" onclick="submitItem()" disabled>Save &amp; Next</button>
   </div>
 
   <!-- AED form -->
   <div id="screen-aed" class="screen">
-    <span class="back-link" onclick="showScreen('screen-category')">&#8592; Back</span>
+    <span class="exit-link" onclick="showScreen('screen-category')">&#8592; Exit</span>
     <label>AED</label>
     <div class="aed-info" id="aed-info"></div>
 
@@ -300,6 +263,16 @@
     <button class="submit-btn" id="aed-submit" onclick="submitAed()">Submit Inspection</button>
   </div>
 
+  <!-- Category complete -->
+  <div id="screen-complete" class="screen">
+    <div class="msg">
+      <span class="icon">&#127881;</span>
+      <span id="complete-text">All done for this category.</span>
+      <br>
+      <button class="again-btn" onclick="showScreen('screen-category')">Back to Categories</button>
+    </div>
+  </div>
+
   <!-- Submitting -->
   <div id="screen-sending" class="screen">
     <div class="msg">
@@ -308,7 +281,7 @@
     </div>
   </div>
 
-  <!-- AED success (only place with the full success screen, since AED has a single unit) -->
+  <!-- AED success -->
   <div id="screen-success" class="screen">
     <div class="msg">
       <span class="icon">&#9989;</span>
@@ -324,7 +297,7 @@
       <span class="icon">&#9888;</span>
       Could not save this inspection.<br>Check your internet connection and try again.
       <br>
-      <button class="retry-btn" onclick="showScreen('screen-category')">Back</button>
+      <button class="retry-btn" onclick="retrySend()">Try Again</button>
     </div>
   </div>
 
@@ -340,10 +313,11 @@
 
   var DATA = null;            // holds the equipment lists fetched from the script
   var currentCategory = null; // 'fireExtinguishers' | 'emergencyDoors' | 'emergencyLights'
-  var currentItem = null;
+  var currentItems = [];      // items array for the active category (fixed order)
+  var currentIndex = 0;       // walkthrough position within currentItems
   var currentStatus = null;
+  var lastPayload = null;     // kept for the "Try Again" button on send errors
   var aedChecks = {};         // checkId -> 'OK' | 'Problem'
-  var sessionDone = {};       // itemId -> {status, cls}  (marks items completed during this visit)
 
   var CATEGORY_LABEL = {
     fireExtinguishers: "Fire Extinguisher",
@@ -355,13 +329,17 @@
     emergencyDoors: "Emergency Doors",
     emergencyLights: "Emergency Lights"
   };
-  var STATUS_CLASS = { "OK": "ok", "Issue Found": "issue", "Could Not Inspect": "skip" };
 
   function showScreen(id) {
     document.querySelectorAll(".screen").forEach(function (el) {
       el.classList.remove("active");
     });
     document.getElementById(id).classList.add("active");
+  }
+
+  function setProgress(current, total) {
+    var pct = total > 0 ? Math.round((current / total) * 100) : 0;
+    document.getElementById("prog-bar").style.width = pct + "%";
   }
 
   function showToast(text) {
@@ -389,6 +367,7 @@
 
   function loadData() {
     showScreen("screen-loading");
+    setProgress(0, 1);
     fetch(SCRIPT_URL)
       .then(function (res) {
         if (!res.ok) throw new Error("Bad response");
@@ -403,56 +382,33 @@
       });
   }
 
+  function confirmExit() {
+    if (confirm("Exit this category? Anything already saved stays saved.")) {
+      showScreen("screen-category");
+      setProgress(0, 1);
+    }
+  }
+
+  // ---------- Category walkthrough (Fire Extinguishers / Emergency Doors / Emergency Lights) ----------
+
   function openCategory(category) {
     if (category === "aed") {
       openAed();
       return;
     }
     currentCategory = category;
-    renderList();
-    showScreen("screen-list");
+    currentItems = DATA[category];
+    currentIndex = 0;
+    showItem();
   }
 
-  function renderList() {
-    document.getElementById("list-category-label").textContent = CATEGORY_TITLE[currentCategory];
-    var items = DATA[currentCategory];
-    var doneCount = items.filter(function (i) { return sessionDone[i.itemId]; }).length;
-    document.getElementById("list-progress").textContent = doneCount + " / " + items.length + " done";
-
-    var list = document.getElementById("item-list");
-    list.innerHTML = "";
-    items.forEach(function (item) {
-      var row = document.createElement("div");
-      var done = sessionDone[item.itemId];
-      row.className = "item-row" + (done ? " done" : "");
-      row.onclick = function () { openItem(item); };
-
-      var text = document.createElement("div");
-      var main = document.createElement("div");
-      main.className = "item-text";
-      main.textContent = item.location + (item.unitNumber ? " (#" + item.unitNumber + ")" : "");
-      text.appendChild(main);
-      row.appendChild(text);
-
-      if (done) {
-        var badge = document.createElement("span");
-        badge.className = "badge " + done.cls;
-        badge.textContent = done.status;
-        row.appendChild(badge);
-      } else {
-        var arrow = document.createElement("span");
-        arrow.className = "item-sub";
-        arrow.textContent = "›";
-        row.appendChild(arrow);
-      }
-
-      list.appendChild(row);
-    });
-  }
-
-  function openItem(item) {
-    currentItem = item;
+  function showItem() {
+    var item = currentItems[currentIndex];
     currentStatus = null;
+
+    document.getElementById("step-counter").textContent =
+      (currentIndex + 1) + " / " + currentItems.length;
+    setProgress(currentIndex, currentItems.length);
 
     document.getElementById("item-location-label").textContent =
       item.location + (item.unitNumber ? " (#" + item.unitNumber + ")" : "");
@@ -477,7 +433,7 @@
   }
 
   function submitItem() {
-    var item = currentItem;
+    var item = currentItems[currentIndex];
     var inspector = document.getElementById("item-inspector").value.trim();
 
     if (!inspector) {
@@ -496,18 +452,43 @@
       inspector: inspector
     };
 
+    sendAndAdvance(payload);
+  }
+
+  function sendAndAdvance(payload) {
+    lastPayload = { payload: payload, kind: "item" };
     showScreen("screen-sending");
     postOne(payload)
       .then(function () {
-        sessionDone[item.itemId] = { status: currentStatus, cls: STATUS_CLASS[currentStatus] };
-        renderList();
-        showScreen("screen-list");
-        showToast("Saved - " + item.location);
+        showToast("Saved - " + payload.location);
+        currentIndex += 1;
+        if (currentIndex < currentItems.length) {
+          showItem();
+        } else {
+          setProgress(1, 1);
+          document.getElementById("complete-text").textContent =
+            "All " + currentItems.length + " items in " + CATEGORY_TITLE[currentCategory] + " are done.";
+          showScreen("screen-complete");
+        }
       })
       .catch(function () {
         showScreen("screen-send-error");
       });
   }
+
+  function retrySend() {
+    if (!lastPayload) {
+      showScreen("screen-category");
+      return;
+    }
+    if (lastPayload.kind === "item") {
+      sendAndAdvance(lastPayload.payload);
+    } else {
+      sendAedChain(lastPayload.payloads);
+    }
+  }
+
+  // ---------- AED (single unit, 4 checklist points shown together) ----------
 
   function openAed() {
     var aed = DATA.aed[0];
@@ -556,6 +537,7 @@
     document.getElementById("aed-notes").value = "";
     document.getElementById("aed-inspector").value = getSavedInspector();
     updateAedSubmitState();
+    setProgress(0, 1);
     showScreen("screen-aed");
   }
 
@@ -590,15 +572,22 @@
       };
     });
 
+    sendAedChain(payloads);
+  }
+
+  function sendAedChain(payloads) {
+    lastPayload = { payloads: payloads, kind: "aed" };
     showScreen("screen-sending");
     var chain = Promise.resolve();
     payloads.forEach(function (p) {
       chain = chain.then(function () { return postOne(p); });
     });
     chain
-      .then(function () { showScreen("screen-success"); })
+      .then(function () { setProgress(1, 1); showScreen("screen-success"); })
       .catch(function () { showScreen("screen-send-error"); });
   }
+
+  // ---------- shared network helper ----------
 
   function postOne(payload) {
     return fetch(SCRIPT_URL, {
