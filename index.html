@@ -165,6 +165,30 @@
     margin-bottom: 10px;
   }
 
+  .cover-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--blue-light);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    font-size: 13px;
+  }
+  .cover-summary .change-link {
+    color: var(--blue);
+    font-weight: bold;
+    cursor: pointer;
+  }
+  input[type=date] {
+    width: 100%;
+    padding: 12px;
+    font-size: 15px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+  }
+
   .toast {
     position: fixed;
     left: 50%;
@@ -211,8 +235,24 @@
     </div>
   </div>
 
+  <!-- Cover: inspector name + inspection date (sets the month automatically) -->
+  <div id="screen-cover" class="screen">
+    <label>Inspector Name</label>
+    <input type="text" id="cover-name" placeholder="e.g. Aldo Perez" />
+
+    <label>Inspection Date</label>
+    <input type="date" id="cover-date" />
+    <div class="aed-info" id="cover-month"></div>
+
+    <button class="submit-btn" id="cover-start" onclick="startSession()">Start Inspection</button>
+  </div>
+
   <!-- Category selection -->
   <div id="screen-category" class="screen">
+    <div class="cover-summary">
+      <span id="category-summary"></span>
+      <span class="change-link" onclick="showScreen('screen-cover')">Change</span>
+    </div>
     <label>What are you inspecting?</label>
     <div class="cat-grid">
       <div class="cat-btn" onclick="openCategory('fireExtinguishers')">Fire<br>Extinguishers</div>
@@ -240,9 +280,6 @@
     <label>Notes (optional)</label>
     <textarea id="item-notes" placeholder="e.g. no knob, needs recharge..."></textarea>
 
-    <label>Inspector Initials</label>
-    <input type="text" id="item-inspector" placeholder="e.g. AP" maxlength="6" />
-
     <button class="submit-btn" id="item-submit" onclick="submitItem()" disabled>Save &amp; Next</button>
   </div>
 
@@ -256,9 +293,6 @@
 
     <label>Notes (optional)</label>
     <textarea id="aed-notes" placeholder="e.g. needs hand wipes restocked..."></textarea>
-
-    <label>Inspector Initials</label>
-    <input type="text" id="aed-inspector" placeholder="e.g. AP" maxlength="6" />
 
     <button class="submit-btn" id="aed-submit" onclick="submitAed()">Submit Inspection</button>
   </div>
@@ -319,6 +353,11 @@
   var lastPayload = null;     // kept for the "Try Again" button on send errors
   var aedChecks = {};         // checkId -> 'OK' | 'Problem'
 
+  // Set once on the cover screen, then reused for every submission this session.
+  var sessionInspector = "";
+  var sessionDate = "";   // yyyy-mm-dd, from the date picker
+  var sessionMonth = "";  // e.g. "September 2026", derived from sessionDate
+
   var CATEGORY_LABEL = {
     fireExtinguishers: "Fire Extinguisher",
     emergencyDoors: "Emergency Door",
@@ -329,6 +368,8 @@
     emergencyDoors: "Emergency Doors",
     emergencyLights: "Emergency Lights"
   };
+  var MONTH_NAMES = ["January","February","March","April","May","June",
+                      "July","August","September","October","November","December"];
 
   function showScreen(id) {
     document.querySelectorAll(".screen").forEach(function (el) {
@@ -365,6 +406,20 @@
     }
   }
 
+  function todayIso() {
+    var d = new Date();
+    var mm = String(d.getMonth() + 1).padStart(2, "0");
+    var dd = String(d.getDate()).padStart(2, "0");
+    return d.getFullYear() + "-" + mm + "-" + dd;
+  }
+
+  function monthLabel(dateStr) {
+    // Parsing with a time component keeps this in the local timezone,
+    // instead of shifting a day when parsed as UTC midnight.
+    var d = new Date(dateStr + "T00:00:00");
+    return MONTH_NAMES[d.getMonth()] + " " + d.getFullYear();
+  }
+
   function loadData() {
     showScreen("screen-loading");
     setProgress(0, 1);
@@ -375,11 +430,43 @@
       })
       .then(function (json) {
         DATA = json;
-        showScreen("screen-category");
+        showCover();
       })
       .catch(function () {
         showScreen("screen-load-error");
       });
+  }
+
+  function showCover() {
+    document.getElementById("cover-name").value = getSavedInspector();
+    var dateInput = document.getElementById("cover-date");
+    dateInput.value = todayIso();
+    updateCoverMonth();
+    dateInput.onchange = updateCoverMonth;
+    showScreen("screen-cover");
+  }
+
+  function updateCoverMonth() {
+    var dateVal = document.getElementById("cover-date").value || todayIso();
+    document.getElementById("cover-month").textContent =
+      "This inspection will be logged under: " + monthLabel(dateVal);
+  }
+
+  function startSession() {
+    var name = document.getElementById("cover-name").value.trim();
+    if (!name) {
+      alert("Please enter the inspector's name.");
+      return;
+    }
+    sessionInspector = name;
+    sessionDate = document.getElementById("cover-date").value || todayIso();
+    sessionMonth = monthLabel(sessionDate);
+    saveInspector(name);
+
+    document.getElementById("category-summary").textContent =
+      name + " · " + sessionMonth;
+
+    showScreen("screen-category");
   }
 
   function confirmExit() {
@@ -417,7 +504,6 @@
       btn.classList.remove("selected", "ok", "issue", "skip");
     });
     document.getElementById("item-notes").value = "";
-    document.getElementById("item-inspector").value = getSavedInspector();
     document.getElementById("item-submit").disabled = true;
 
     showScreen("screen-item");
@@ -434,13 +520,6 @@
 
   function submitItem() {
     var item = currentItems[currentIndex];
-    var inspector = document.getElementById("item-inspector").value.trim();
-
-    if (!inspector) {
-      alert("Please enter your inspector initials.");
-      return;
-    }
-    saveInspector(inspector);
 
     var payload = {
       itemId: item.itemId,
@@ -449,7 +528,9 @@
       unitNumber: item.unitNumber || "",
       status: currentStatus,
       notes: document.getElementById("item-notes").value.trim(),
-      inspector: inspector
+      inspector: sessionInspector,
+      inspectionDate: sessionDate,
+      month: sessionMonth
     };
 
     sendAndAdvance(payload);
@@ -535,7 +616,6 @@
     });
 
     document.getElementById("aed-notes").value = "";
-    document.getElementById("aed-inspector").value = getSavedInspector();
     updateAedSubmitState();
     setProgress(0, 1);
     showScreen("screen-aed");
@@ -549,13 +629,6 @@
   }
 
   function submitAed() {
-    var inspector = document.getElementById("aed-inspector").value.trim();
-    if (!inspector) {
-      alert("Please enter your inspector initials.");
-      return;
-    }
-    saveInspector(inspector);
-
     var aed = DATA.aed[0];
     var notes = document.getElementById("aed-notes").value.trim();
 
@@ -568,7 +641,9 @@
         checkItem: chk.checkName,
         status: aedChecks[chk.checkId] === "OK" ? "OK" : "Problem",
         notes: notes,
-        inspector: inspector
+        inspector: sessionInspector,
+        inspectionDate: sessionDate,
+        month: sessionMonth
       };
     });
 
