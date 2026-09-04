@@ -26,13 +26,13 @@
   header {
     background: var(--blue);
     color: #fff;
-    padding: 18px 16px;
+    padding: 16px 16px;
     text-align: center;
     position: sticky;
     top: 0;
     z-index: 10;
   }
-  header h1 { margin: 0; font-size: 18px; }
+  header h1 { margin: 0; font-size: 17px; }
   header p { margin: 4px 0 0; font-size: 12px; opacity: 0.85; }
   main {
     max-width: 480px;
@@ -103,6 +103,54 @@
     cursor: pointer;
   }
 
+  .list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+  }
+  .list-progress { font-size: 13px; color: var(--grey); }
+
+  .item-list { margin-top: 10px; }
+  .item-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #fff;
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .item-row .item-text { font-size: 15px; font-weight: bold; color: #222; }
+  .item-row .item-sub { font-size: 12px; color: var(--grey); font-weight: normal; }
+  .item-row .badge {
+    font-size: 12px;
+    font-weight: bold;
+    padding: 4px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+    margin-left: 10px;
+  }
+  .item-row.done { border-color: var(--border); background: #fafafa; }
+  .badge.ok { background: #e8f5e9; color: var(--green); }
+  .badge.issue { background: #fdecea; color: var(--red); }
+  .badge.skip { background: #fdf3e3; color: var(--amber); }
+
+  .finish-btn {
+    width: 100%;
+    padding: 14px;
+    margin-top: 16px;
+    background: #fff;
+    color: var(--blue);
+    border: 2px solid var(--blue);
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+
   .card {
     background: #fff;
     border: 1px solid var(--border);
@@ -141,17 +189,28 @@
     cursor: pointer;
   }
 
-  .meta-row {
-    display: flex;
-    gap: 10px;
-  }
-  .meta-row > div { flex: 1; }
-
   .aed-info {
     font-size: 13px;
     color: var(--grey);
     margin-bottom: 10px;
   }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    background: #222;
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 30px;
+    font-size: 14px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 50;
+  }
+  .toast.show { opacity: 0.95; }
 </style>
 </head>
 <body>
@@ -192,13 +251,21 @@
     </div>
   </div>
 
+  <!-- List of locations for the chosen category -->
+  <div id="screen-list" class="screen">
+    <span class="back-link" onclick="showScreen('screen-category')">&#8592; Categories</span>
+    <div class="list-header">
+      <label id="list-category-label" style="margin:0;"></label>
+      <span class="list-progress" id="list-progress"></span>
+    </div>
+    <div class="item-list" id="item-list"></div>
+    <button class="finish-btn" onclick="showScreen('screen-category')">Done for now</button>
+  </div>
+
   <!-- Standard item form (extinguishers / doors / lights) -->
   <div id="screen-item" class="screen">
-    <span class="back-link" onclick="showScreen('screen-category')">&#8592; Back</span>
-    <label id="item-category-label"></label>
-
-    <label>Location</label>
-    <select id="item-select"></select>
+    <span class="back-link" onclick="showScreen('screen-list')">&#8592; Back to list</span>
+    <label id="item-location-label" style="font-size:17px;"></label>
 
     <label>Status</label>
     <div class="status-grid">
@@ -213,7 +280,7 @@
     <label>Inspector Initials</label>
     <input type="text" id="item-inspector" placeholder="e.g. AP" maxlength="6" />
 
-    <button class="submit-btn" id="item-submit" onclick="submitItem()" disabled>Submit Inspection</button>
+    <button class="submit-btn" id="item-submit" onclick="submitItem()" disabled>Save &amp; Continue</button>
   </div>
 
   <!-- AED form -->
@@ -241,13 +308,13 @@
     </div>
   </div>
 
-  <!-- Success -->
+  <!-- AED success (only place with the full success screen, since AED has a single unit) -->
   <div id="screen-success" class="screen">
     <div class="msg">
       <span class="icon">&#9989;</span>
       Inspection saved.
       <br>
-      <button class="again-btn" onclick="showScreen('screen-category')">New Inspection</button>
+      <button class="again-btn" onclick="showScreen('screen-category')">Back to Categories</button>
     </div>
   </div>
 
@@ -263,28 +330,45 @@
 
 </main>
 
+<div class="toast" id="toast">Saved</div>
+
 <script>
   // ---- Configuration ----
   // Apps Script web app URL (Step 2). Update this if the deployment is ever redeployed
   // with a new URL (updating an existing deployment keeps the same URL).
   var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwcVm37S54Tf2v5tDxNCjHS_ekbY91jttduPWWx-pwctLJ69ktKpD_McmWAtOQEgF7P4A/exec";
 
-  var DATA = null;           // holds the equipment lists fetched from the script
+  var DATA = null;            // holds the equipment lists fetched from the script
   var currentCategory = null; // 'fireExtinguishers' | 'emergencyDoors' | 'emergencyLights'
+  var currentItem = null;
   var currentStatus = null;
   var aedChecks = {};         // checkId -> 'OK' | 'Problem'
+  var sessionDone = {};       // itemId -> {status, cls}  (marks items completed during this visit)
 
   var CATEGORY_LABEL = {
     fireExtinguishers: "Fire Extinguisher",
     emergencyDoors: "Emergency Door",
     emergencyLights: "Emergency Light"
   };
+  var CATEGORY_TITLE = {
+    fireExtinguishers: "Fire Extinguishers",
+    emergencyDoors: "Emergency Doors",
+    emergencyLights: "Emergency Lights"
+  };
+  var STATUS_CLASS = { "OK": "ok", "Issue Found": "issue", "Could Not Inspect": "skip" };
 
   function showScreen(id) {
     document.querySelectorAll(".screen").forEach(function (el) {
       el.classList.remove("active");
     });
     document.getElementById(id).classList.add("active");
+  }
+
+  function showToast(text) {
+    var t = document.getElementById("toast");
+    t.textContent = text;
+    t.classList.add("show");
+    setTimeout(function () { t.classList.remove("show"); }, 1200);
   }
 
   function getSavedInspector() {
@@ -325,21 +409,53 @@
       return;
     }
     currentCategory = category;
+    renderList();
+    showScreen("screen-list");
+  }
+
+  function renderList() {
+    document.getElementById("list-category-label").textContent = CATEGORY_TITLE[currentCategory];
+    var items = DATA[currentCategory];
+    var doneCount = items.filter(function (i) { return sessionDone[i.itemId]; }).length;
+    document.getElementById("list-progress").textContent = doneCount + " / " + items.length + " done";
+
+    var list = document.getElementById("item-list");
+    list.innerHTML = "";
+    items.forEach(function (item) {
+      var row = document.createElement("div");
+      var done = sessionDone[item.itemId];
+      row.className = "item-row" + (done ? " done" : "");
+      row.onclick = function () { openItem(item); };
+
+      var text = document.createElement("div");
+      var main = document.createElement("div");
+      main.className = "item-text";
+      main.textContent = item.location + (item.unitNumber ? " (#" + item.unitNumber + ")" : "");
+      text.appendChild(main);
+      row.appendChild(text);
+
+      if (done) {
+        var badge = document.createElement("span");
+        badge.className = "badge " + done.cls;
+        badge.textContent = done.status;
+        row.appendChild(badge);
+      } else {
+        var arrow = document.createElement("span");
+        arrow.className = "item-sub";
+        arrow.textContent = "›";
+        row.appendChild(arrow);
+      }
+
+      list.appendChild(row);
+    });
+  }
+
+  function openItem(item) {
+    currentItem = item;
     currentStatus = null;
 
-    document.getElementById("item-category-label").textContent =
-      "Location (" + CATEGORY_LABEL[category] + ")";
-
-    var select = document.getElementById("item-select");
-    select.innerHTML = "";
-    DATA[category].forEach(function (item) {
-      var opt = document.createElement("option");
-      opt.value = item.itemId;
-      var label = item.location;
-      if (item.unitNumber) label += " (#" + item.unitNumber + ")";
-      opt.textContent = label;
-      select.appendChild(opt);
-    });
+    document.getElementById("item-location-label").textContent =
+      item.location + (item.unitNumber ? " (#" + item.unitNumber + ")" : "");
 
     document.querySelectorAll("#screen-item .status-btn").forEach(function (btn) {
       btn.classList.remove("selected", "ok", "issue", "skip");
@@ -361,9 +477,7 @@
   }
 
   function submitItem() {
-    var select = document.getElementById("item-select");
-    var itemId = select.value;
-    var item = DATA[currentCategory].filter(function (i) { return i.itemId === itemId; })[0];
+    var item = currentItem;
     var inspector = document.getElementById("item-inspector").value.trim();
 
     if (!inspector) {
@@ -382,7 +496,17 @@
       inspector: inspector
     };
 
-    sendOne(payload);
+    showScreen("screen-sending");
+    postOne(payload)
+      .then(function () {
+        sessionDone[item.itemId] = { status: currentStatus, cls: STATUS_CLASS[currentStatus] };
+        renderList();
+        showScreen("screen-list");
+        showToast("Saved - " + item.location);
+      })
+      .catch(function () {
+        showScreen("screen-send-error");
+      });
   }
 
   function openAed() {
@@ -466,7 +590,14 @@
       };
     });
 
-    sendMany(payloads);
+    showScreen("screen-sending");
+    var chain = Promise.resolve();
+    payloads.forEach(function (p) {
+      chain = chain.then(function () { return postOne(p); });
+    });
+    chain
+      .then(function () { showScreen("screen-success"); })
+      .catch(function () { showScreen("screen-send-error"); });
   }
 
   function postOne(payload) {
@@ -481,24 +612,6 @@
     }).then(function (json) {
       if (!json.ok) throw new Error(json.error || "Unknown error");
     });
-  }
-
-  function sendOne(payload) {
-    showScreen("screen-sending");
-    postOne(payload)
-      .then(function () { showScreen("screen-success"); })
-      .catch(function () { showScreen("screen-send-error"); });
-  }
-
-  function sendMany(payloads) {
-    showScreen("screen-sending");
-    var chain = Promise.resolve();
-    payloads.forEach(function (p) {
-      chain = chain.then(function () { return postOne(p); });
-    });
-    chain
-      .then(function () { showScreen("screen-success"); })
-      .catch(function () { showScreen("screen-send-error"); });
   }
 
   loadData();
